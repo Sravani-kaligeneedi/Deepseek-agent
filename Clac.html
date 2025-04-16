@@ -1,3 +1,15 @@
-curl -X POST http://localhost:8000/chat/ \
-     -H "Content-Type: application/x-www-form-urlencoded" \
-     -d "query=Explain justification for molecule X"
+try:
+                pdf_filename = os.path.basename(crr.pdf_file.name)  # Replace `pdf_file` with your actual PDF field name
+                citation_number = os.path.splitext(pdf_filename)[0]  # "1.pdf" → "1"
+                pdf_url = f"{settings.MEDIA_URL}{pdf_filename}"
+            except:
+                citation_number = "N/A"
+                pdf_url = "#"
+            
+            context.append(
+                f"Justification: {crr.Justifications}\n"
+                f"Citation: [Citation {citation_number}]({pdf_url})\n"
+                f"Molecule: {crr.Molecule}\n"
+                f"Quality Attribute: {crr.Quality_Attribute}"
+            )
+        return "\n\n".join(context)
