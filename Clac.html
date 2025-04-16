@@ -1,14 +1,34 @@
-try:
-                pdf_filename = os.path.basename(crr.pdf_file.name)  # Replace `pdf_file` with your actual PDF field name
-                citation_number = os.path.splitext(pdf_filename)[0]  # "1.pdf" → "1"
-                pdf_url = f"{settings.MEDIA_URL}{pdf_filename}"
-            except:
-                citation_number = "N/A"
-                pdf_url = "#"
+# CRR_project_app/llm_services.py
+import os
+import re
+from django.conf import settings
+
+class CRRAgent:
+    def __init__(self):
+        # ... (previous code)
+
+    def retrieve_context(self, query: str, k=3) -> str:
+        # ... (previous code to get indices)
+        context = []
+        for idx in indices[0]:
+            crr = self.crr_entries[idx]
+            justification = crr.Justifications
+            
+            # Extract citation numbers from justification text (e.g., "1, 2")
+            citation_numbers = re.findall(r'\b\d+\b', justification)
+            
+            # Build citation links for existing PDFs
+            citations = []
+            for num in citation_numbers:
+                pdf_path = os.path.join(settings.MEDIA_ROOT, 'pdfs', f'{num}.pdf')  # Adjust path if needed
+                if os.path.exists(pdf_path):
+                    citations.append(f"[Citation {num}](/media/pdfs/{num}.pdf)")
+                else:
+                    citations.append(f"[Citation {num} (PDF not found)]")
             
             context.append(
-                f"Justification: {crr.Justifications}\n"
-                f"Citation: [Citation {citation_number}]({pdf_url})\n"
+                f"Justification: {justification}\n"
+                f"Citations: {', '.join(citations)}\n"
                 f"Molecule: {crr.Molecule}\n"
                 f"Quality Attribute: {crr.Quality_Attribute}"
             )
