@@ -1,87 +1,97 @@
-# CRR_project_app/views.py
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from .llm_services import CRRAgent
-import re
-import logging
+<!-- Chatbot Widget -->
+<div id="chatbot-wrapper" style="position: fixed; bottom: 20px; right: 20px; width: 350px; background: white; border: 1px solid #ddd; box-shadow: 0 0 10px rgba(0,0,0,0.1); z-index: 1000;">
+    <div id="chatbot-header" style="background: #007bff; color: white; padding: 10px; display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="toggleChat()">
+        <h4 style="margin: 0;">CRR Assistant</h4>
+        <span id="chatbot-toggle">▼</span>
+    </div>
+    <div id="chat-body" style="height: 300px; overflow-y: auto; padding: 10px; display: none;">
+        <div class="bot-message">Hello! Ask me about molecules, justifications, or rankings.</div>
+    </div>
+    <div style="padding: 10px;">
+        <input type="text" id="user-input" placeholder="Type your question..." style="width: 100%; padding: 8px; margin-bottom: 5px;">
+        <button onclick="sendMessage()" style="width: 100%; padding: 8px; background: #007bff; color: white; border: none;">Send</button>
+    </div>
+</div>
 
-logger = logging.getLogger(__name__)
-agent = CRRAgent()  # Initialize once
+<script>
+    let isChatOpen = true;
 
-@csrf_exempt
-def chat_handler(request):
-    if request.method == 'POST':
-        try:
-            user_query = request.POST.get('query', '').strip()
-            logger.info(f"User Query: {user_query}")  # Log the query
+    // Toggle chat visibility
+    function toggleChat() {
+        const chatBody = document.getElementById('chat-body');
+        const toggleIcon = document.getElementById('chatbot-toggle');
+        isChatOpen = !isChatOpen;
+        chatBody.style.display = isChatOpen ? 'block' : 'none';
+        toggleIcon.textContent = isChatOpen ? '▼' : '▲';
+    }
 
-            # =================================================================
-            # Handle Ranking Prediction (Tool Calculation)
-            # =================================================================
-            if any(keyword in user_query.lower() for keyword in ["efficacy", "pk/pd", "immunogenicity", "safety"]):
-                impacts = []
-                uncertainties = []
-                
-                # Regex to extract values for all 4 attributes (case-insensitive)
-                attributes = ["efficacy", "pk/pd", "immunogenicity", "safety"]
-                for attr in attributes:
-                    # Match patterns like "Efficacy Impact=5 Uncertainty=3"
-                    impact_match = re.search(
-                        rf"{attr} impact=(\d+\.?\d*)", 
-                        user_query, 
-                        re.IGNORECASE
-                    )
-                    uncertainty_match = re.search(
-                        rf"{attr} uncertainty=(\d+\.?\d*)", 
-                        user_query, 
-                        re.IGNORECASE
-                    )
-                    
-                    impacts.append(float(impact_match.group(1)) if impact_match else 0.0)
-                    uncertainties.append(float(uncertainty_match.group(1)) if uncertainty_match else 0.0)
+    // Handle sending messages
+    function sendMessage() {
+        const userInput = document.getElementById('user-input');
+        const chatBody = document.getElementById('chat-body');
+        const message = userInput.value.trim();
 
-                # Validate all 4 attributes
-                if len(impacts) != 4 or len(uncertainties) != 4:
-                    return JsonResponse({
-                        'response': "Error: Specify all 4 attributes with Impact/Uncertainty values. "
-                                    "Example: 'Efficacy Impact=5 Uncertainty=3, PK/PD Impact=4 Uncertainty=2...'"
-                    })
+        if (!message) return;
 
-                # Calculate ranking
-                result = agent.predict_ranking(impacts, uncertainties)
-                return JsonResponse({
-                    'response': (
-                        f"Overall Ranking: {result['overall_ranking']}\n"
-                        f"Criticality Scores: {result['criticality_scores']}\n"
-                        f"Row Rankings: {', '.join(result['row_rankings'])}"
-                    )
-                })
+        // Add user message
+        chatBody.innerHTML += `
+            <div class="user-message" style="background: #e3f2fd; margin: 5px 0; padding: 8px; border-radius: 5px;">
+                ${message}
+            </div>
+        `;
 
-            # =================================================================
-            # Handle Justifications/Citations Q&A
-            # =================================================================
-            else:
-                # Retrieve context with citations from Justifications
-                context = agent.retrieve_context(user_query)
-                
-                # Build prompt with citation instructions
-                prompt = f"""
-                You are a scientific research assistant. Answer the user's question using the context below.
-                Always cite sources using the provided [Citation X] links. 
+        // Clear input
+        userInput.value = '';
 
-                Context:
-                {context}
+        // Show loading indicator
+        chatBody.innerHTML += `
+            <div class="bot-message" style="color: #666; margin: 5px 0; padding: 8px;">
+                <em>Agent is typing...</em>
+            </div>
+        `;
+        chatBody.scrollTop = chatBody.scrollHeight;
 
-                Question: {user_query}
-                Answer:
-                """
-                
-                # Get response from Ollama
-                answer = agent.ask_ollama(prompt)
-                return JsonResponse({'response': answer})
+        // Send request to Django
+        fetch('/chat/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: `query=${encodeURIComponent(message)}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Remove loading indicator
+            const loadingMessages = chatBody.getElementsByClassName('bot-message');
+            if (loadingMessages.length > 0) {
+                chatBody.removeChild(loadingMessages[loadingMessages.length - 1]);
+            }
 
-        except Exception as e:
-            logger.error(f"Error processing query: {str(e)}", exc_info=True)
-            return JsonResponse({'response': "An error occurred. Please check your input format."})
-
-    return JsonResponse({'error': 'POST requests only'}, status=400)
+            // Add bot response
+            if (data.response) {
+                chatBody.innerHTML += `
+                    <div class="bot-message" style="background: #f8f9fa; margin: 5px 0; padding: 8px; border-radius: 5px;">
+                        ${data.response}
+                    </div>
+                `;
+            } else {
+                chatBody.innerHTML += `
+                    <div class="bot-message" style="color: red; margin: 5px 0; padding: 8px;">
+                        Error: No response from the agent.
+                    </div>
+                `;
+            }
+            chatBody.scrollTop = chatBody.scrollHeight;
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            chatBody.innerHTML += `
+                <div class="bot-message" style="color: red; margin: 5px 0; padding: 8px;">
+                    Error: Could not connect to the server.
+                </div>
+            `;
+            chatBody.scrollTop = chatBody.scrollHeight;
+        });
+    }
+</script>
