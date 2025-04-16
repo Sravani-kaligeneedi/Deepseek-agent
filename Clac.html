@@ -1,11 +1,105 @@
-<!-- calculation.html -->
-{% extends "CRR_project_app/base.html" %}
-{% block title %}Calculation Page{% endblock %}
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">  <!-- For CSRF -->
+    <title>{% block title %}{% endblock %}</title>
+    
+    <!-- Your existing CSS links -->
+    {% block styles %}{% endblock %}
+    
+    <!-- Chatbot CSS -->
+    <style>
+        #chatbot-wrapper {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            width: 350px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+        }
+        #chatbot-header {
+            background: #007bff;
+            color: white;
+            padding: 10px;
+            border-radius: 10px 10px 0 0;
+            cursor: pointer;
+        }
+        #chatbot-body {
+            height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+            display: none;  /* Hidden by default */
+        }
+        .chat-message {
+            margin: 5px 0;
+            padding: 8px;
+            border-radius: 5px;
+        }
+        .user-message { background: #e3f2fd; }
+        .bot-message { background: #f8f9fa; }
+        #chatbot-input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    {% block content %}{% endblock %}  <!-- Your page content -->
 
-{% block content %}
-    ...your existing content...
-{% endblock %}
+    <!-- Chatbot Widget -->
+    <div id="chatbot-wrapper">
+        <div id="chatbot-header" onclick="toggleChat()">
+            CRR Assistant ▼
+        </div>
+        <div id="chatbot-body">
+            <div class="bot-message chat-message">Ask me about molecules, justifications, or rankings!</div>
+        </div>
+        <div style="padding: 10px;">
+            <input type="text" id="chatbot-input" placeholder="Type your question...">
+            <button onclick="sendChatQuery()" style="margin-top: 5px;">Send</button>
+        </div>
+    </div>
 
-{% block scripts %}
-    <!-- Page-specific scripts -->
-{% endblock %}
+    <!-- Chatbot JavaScript -->
+    <script>
+        function toggleChat() {
+            const body = document.getElementById('chatbot-body');
+            body.style.display = body.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function sendChatQuery() {
+            const input = document.getElementById('chatbot-input');
+            const body = document.getElementById('chatbot-body');
+            const csrfToken = document.querySelector('[name=csrf-token]').content;
+
+            // Add user message
+            body.innerHTML += `<div class="user-message chat-message">${input.value}</div>`;
+            
+            // Call Django API
+            fetch('/chat/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': csrfToken
+                },
+                body: `query=${encodeURIComponent(input.value)}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                body.innerHTML += `<div class="bot-message chat-message">${data.response}</div>`;
+                input.value = '';
+                body.scrollTop = body.scrollHeight;  // Auto-scroll
+            });
+        }
+    </script>
+
+    {% block scripts %}{% endblock %}  <!-- Your existing scripts -->
+</body>
+</html>
