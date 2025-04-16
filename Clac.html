@@ -1,35 +1,87 @@
-# CRR_project_app/llm_services.py
-import os
+# CRR_project_app/views.py
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from .llm_services import CRRAgent
 import re
-from django.conf import settings
+import logging
 
-class CRRAgent:
-    def __init__(self):
-        # ... (previous code)
+logger = logging.getLogger(__name__)
+agent = CRRAgent()  # Initialize once
 
-    def retrieve_context(self, query: str, k=3) -> str:
-        # ... (previous code to get indices)
-        context = []
-        for idx in indices[0]:
-            crr = self.crr_entries[idx]
-            justification = crr.Justifications
-            
-            # Extract citation numbers from justification text (e.g., "1, 2")
-            citation_numbers = re.findall(r'\b\d+\b', justification)
-            
-            # Build citation links for existing PDFs
-            citations = []
-            for num in citation_numbers:
-                pdf_path = os.path.join(settings.MEDIA_ROOT, 'pdfs', f'{num}.pdf')  # Adjust path if needed
-                if os.path.exists(pdf_path):
-                    citations.append(f"[Citation {num}](/media/pdfs/{num}.pdf)")
-                else:
-                    citations.append(f"[Citation {num} (PDF not found)]")
-            
-            context.append(
-                f"Justification: {justification}\n"
-                f"Citations: {', '.join(citations)}\n"
-                f"Molecule: {crr.Molecule}\n"
-                f"Quality Attribute: {crr.Quality_Attribute}"
-            )
-        return "\n\n".join(context)
+@csrf_exempt
+def chat_handler(request):
+    if request.method == 'POST':
+        try:
+            user_query = request.POST.get('query', '').strip()
+            logger.info(f"User Query: {user_query}")  # Log the query
+
+            # =================================================================
+            # Handle Ranking Prediction (Tool Calculation)
+            # =================================================================
+            if any(keyword in user_query.lower() for keyword in ["efficacy", "pk/pd", "immunogenicity", "safety"]):
+                impacts = []
+                uncertainties = []
+                
+                # Regex to extract values for all 4 attributes (case-insensitive)
+                attributes = ["efficacy", "pk/pd", "immunogenicity", "safety"]
+                for attr in attributes:
+                    # Match patterns like "Efficacy Impact=5 Uncertainty=3"
+                    impact_match = re.search(
+                        rf"{attr} impact=(\d+\.?\d*)", 
+                        user_query, 
+                        re.IGNORECASE
+                    )
+                    uncertainty_match = re.search(
+                        rf"{attr} uncertainty=(\d+\.?\d*)", 
+                        user_query, 
+                        re.IGNORECASE
+                    )
+                    
+                    impacts.append(float(impact_match.group(1)) if impact_match else 0.0)
+                    uncertainties.append(float(uncertainty_match.group(1)) if uncertainty_match else 0.0)
+
+                # Validate all 4 attributes
+                if len(impacts) != 4 or len(uncertainties) != 4:
+                    return JsonResponse({
+                        'response': "Error: Specify all 4 attributes with Impact/Uncertainty values. "
+                                    "Example: 'Efficacy Impact=5 Uncertainty=3, PK/PD Impact=4 Uncertainty=2...'"
+                    })
+
+                # Calculate ranking
+                result = agent.predict_ranking(impacts, uncertainties)
+                return JsonResponse({
+                    'response': (
+                        f"Overall Ranking: {result['overall_ranking']}\n"
+                        f"Criticality Scores: {result['criticality_scores']}\n"
+                        f"Row Rankings: {', '.join(result['row_rankings'])}"
+                    )
+                })
+
+            # =================================================================
+            # Handle Justifications/Citations Q&A
+            # =================================================================
+            else:
+                # Retrieve context with citations from Justifications
+                context = agent.retrieve_context(user_query)
+                
+                # Build prompt with citation instructions
+                prompt = f"""
+                You are a scientific research assistant. Answer the user's question using the context below.
+                Always cite sources using the provided [Citation X] links. 
+
+                Context:
+                {context}
+
+                Question: {user_query}
+                Answer:
+                """
+                
+                # Get response from Ollama
+                answer = agent.ask_ollama(prompt)
+                return JsonResponse({'response': answer})
+
+        except Exception as e:
+            logger.error(f"Error processing query: {str(e)}", exc_info=True)
+            return JsonResponse({'response': "An error occurred. Please check your input format."})
+
+    return JsonResponse({'error': 'POST requests only'}, status=400)
