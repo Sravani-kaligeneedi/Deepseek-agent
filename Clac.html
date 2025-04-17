@@ -1,97 +1,20 @@
-<!-- Chatbot Widget -->
-<div id="chatbot-wrapper" style="position: fixed; bottom: 20px; right: 20px; width: 350px; background: white; border: 1px solid #ddd; box-shadow: 0 0 10px rgba(0,0,0,0.1); z-index: 1000;">
-    <div id="chatbot-header" style="background: #007bff; color: white; padding: 10px; display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="toggleChat()">
-        <h4 style="margin: 0;">CRR Assistant</h4>
-        <span id="chatbot-toggle">▼</span>
-    </div>
-    <div id="chat-body" style="height: 300px; overflow-y: auto; padding: 10px; display: none;">
-        <div class="bot-message">Hello! Ask me about molecules, justifications, or rankings.</div>
-    </div>
-    <div style="padding: 10px;">
-        <input type="text" id="user-input" placeholder="Type your question..." style="width: 100%; padding: 8px; margin-bottom: 5px;">
-        <button onclick="sendMessage()" style="width: 100%; padding: 8px; background: #007bff; color: white; border: none;">Send</button>
-    </div>
-</div>
+# CRR_project_app/llm_services.py
+import requests
 
-<script>
-    let isChatOpen = true;
-
-    // Toggle chat visibility
-    function toggleChat() {
-        const chatBody = document.getElementById('chat-body');
-        const toggleIcon = document.getElementById('chatbot-toggle');
-        isChatOpen = !isChatOpen;
-        chatBody.style.display = isChatOpen ? 'block' : 'none';
-        toggleIcon.textContent = isChatOpen ? '▼' : '▲';
-    }
-
-    // Handle sending messages
-    function sendMessage() {
-        const userInput = document.getElementById('user-input');
-        const chatBody = document.getElementById('chat-body');
-        const message = userInput.value.trim();
-
-        if (!message) return;
-
-        // Add user message
-        chatBody.innerHTML += `
-            <div class="user-message" style="background: #e3f2fd; margin: 5px 0; padding: 8px; border-radius: 5px;">
-                ${message}
-            </div>
-        `;
-
-        // Clear input
-        userInput.value = '';
-
-        // Show loading indicator
-        chatBody.innerHTML += `
-            <div class="bot-message" style="color: #666; margin: 5px 0; padding: 8px;">
-                <em>Agent is typing...</em>
-            </div>
-        `;
-        chatBody.scrollTop = chatBody.scrollHeight;
-
-        // Send request to Django
-        fetch('/chat/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRFToken': '{{ csrf_token }}'
-            },
-            body: `query=${encodeURIComponent(message)}`
-        })
-        .then(response => response.json())
-        .then(data => {
-            // Remove loading indicator
-            const loadingMessages = chatBody.getElementsByClassName('bot-message');
-            if (loadingMessages.length > 0) {
-                chatBody.removeChild(loadingMessages[loadingMessages.length - 1]);
-            }
-
-            // Add bot response
-            if (data.response) {
-                chatBody.innerHTML += `
-                    <div class="bot-message" style="background: #f8f9fa; margin: 5px 0; padding: 8px; border-radius: 5px;">
-                        ${data.response}
-                    </div>
-                `;
-            } else {
-                chatBody.innerHTML += `
-                    <div class="bot-message" style="color: red; margin: 5px 0; padding: 8px;">
-                        Error: No response from the agent.
-                    </div>
-                `;
-            }
-            chatBody.scrollTop = chatBody.scrollHeight;
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            chatBody.innerHTML += `
-                <div class="bot-message" style="color: red; margin: 5px 0; padding: 8px;">
-                    Error: Could not connect to the server.
-                </div>
-            `;
-            chatBody.scrollTop = chatBody.scrollHeight;
-        });
-    }
-</script>
+class CRRAgent:
+    def ask_ollama(self, prompt: str) -> str:
+        try:
+            response = requests.post(
+                'http://localhost:11434/api/chat',
+                json={
+                    "model": "llama2",
+                    "messages": [{"role": "user", "content": prompt}]
+                },
+                timeout=30  # Increase timeout to 30 seconds
+            )
+            response.raise_for_status()  # Raise HTTP errors
+            return response.json()['message']['content']
+        except requests.exceptions.RequestException as e:
+            return f"Error: Could not connect to Ollama. Details: {str(e)}"
+        except KeyError:
+            return "Error: Invalid response format from Ollama."
